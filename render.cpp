@@ -26,7 +26,7 @@ The Bela software is distributed under the GNU Lesser General Public License
 #include <Bela.h>
 #include <cmath>
 #include <Scope.h>
-
+#include "simple_moving_average.h"
 Scope scope;
 
 int gAudioFramesPerAnalogFrame = 0;
@@ -43,7 +43,7 @@ float gIn2;
 // 44.1 KHz which you can do in the settings tab.
 float average;
 int sampleCount;
-
+simple_moving_average *SMA;
 
 void dumpAverage()
 {
@@ -86,6 +86,8 @@ bool setup(BelaContext *context, void *userData)
 	gInverseSampleRate = 1.0 / context->audioSampleRate;
 	gPhase = 0.0;
 
+    SMA=new simple_moving_average(5);
+    
 	return true;
 }
 
@@ -97,8 +99,11 @@ void render(BelaContext *context, void *userData)
 		// read analog inputs and update frequency and amplitude
 		gIn1 = analogRead(context, n, 0);
 		gIn2 = analogRead(context, n, 1);
+		
+		gIn1-=0.4182f;
 		storeSample(gIn1);
-		gIn1-=0.4192f;
+		float smoothed=SMA->tick(gIn1);
+		
 		
 		// generate a sine wave with the amplitude and frequency 
 		/*float out = gAmplitude * sinf(gPhase);
@@ -107,7 +112,7 @@ void render(BelaContext *context, void *userData)
 			gPhase -= 2.0f * (float)M_PI;
         */
         float out=0.0f;		// log the sine wave and sensor values on the scope
-		scope.log(out, gIn1, gIn2);
+		scope.log(out, gIn1, smoothed);
 
 		// pass the sine wave to the audio outputs
 		for(unsigned int channel = 0; channel < context->audioOutChannels; channel++) {
