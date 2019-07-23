@@ -33,7 +33,7 @@ int gAudioFramesPerAnalogFrame = 0;
 float gInverseSampleRate;
 float gPhase;
 
-float gAmplitude;
+float gAmplitude=1.0f;
 float gFrequency;
 
 float gIn1;
@@ -64,6 +64,7 @@ void storeSample(float sample)
 }
 
 
+
 bool setup(BelaContext *context, void *userData)
 {
     average=0.0f;
@@ -86,13 +87,30 @@ bool setup(BelaContext *context, void *userData)
 	gInverseSampleRate = 1.0 / context->audioSampleRate;
 	gPhase = 0.0;
 
-    SMA=new simple_moving_average(5);
+    SMA=new simple_moving_average(10);
     
 	return true;
 }
 
+#define STATE_WAITING 0
+#define STATE_TRIGGERED 1
+
+int state=STATE_WAITING;
+int timeout;
+unsigned int zero_counter=0;
+bool zero_reported=false;
+float max_found=0.0f;    
+float zero_ratio;
+int note_time=0;    	
+    	
+int negCount=0;
+int maxPos=0;
+float slope;
+
 void render(BelaContext *context, void *userData)
 {
+    float trigThreshold=-0.05f; //magic numbers
+    int timeOutAmount=1000;   
     
 	for(unsigned int n = 0; n < context->audioFrames; n++) {
 
@@ -100,18 +118,94 @@ void render(BelaContext *context, void *userData)
 		gIn1 = analogRead(context, n, 0);
 		gIn2 = analogRead(context, n, 1);
 		
-		gIn1-=0.4182f;
-		storeSample(gIn1);
+		gIn1-=0.4218f;
+		//storeSample(gIn1);
 		float smoothed=SMA->tick(gIn1);
 		
+		float sample=gIn1;
+		if(sample<-0.4f) sample=-0.4f;
+		if(sample>0.4f) sample=0.4f;
 		
+		if(sample<0.0f)
+		  negCount++;
+		if(sample>=0.0f)
+		  negCount=0;
+		  
+		if(state==STATE_WAITING)
+		{
+			if(sample<trigThreshold)
+		    {
+		       //rt_printf("note triggered at level: %f\n",gIn1);
+		       state=STATE_TRIGGERED;
+		       timeout=timeOutAmount;
+		       zero_counter=0;
+		       zero_reported=false;
+		       max_found=0.0f;
+	     	}
+		}
+		if(state==STATE_TRIGGERED)
+		{
+
+            if(sample<max_found)
+            {
+               max_found=sample;
+               maxPos=zero_counter;
+            }
+			if(zero_reported==false)
+			{
+				zero_counter++;
+
+			    if(sample>0.0f)
+			    {
+			    	rt_printf("zero crossing. sample: %d\n",zero_counter);
+			    	//rt_printf("neg count: %d\n",negCount);
+			    	
+			    	if(zero_counter>110)  zero_ratio=1.0f;
+			    	else                 zero_ratio=0.0f;
+			    	
+			    	
+			    	 
+			    	if(zero_ratio>0.6f)
+			    	   gFrequency=400;
+			    	else
+			    	   gFrequency=100;
+			    	note_time=2000;
+			    	//rt_printf("zero ratio: %.02f\n",zero_ratio);
+			    	
+			    	//rt_printf("max found: %f\n", max_found);
+			    	float slope=fabs(max_found-trigThreshold)/maxPos*25.0f;
+			    	if(slope>1.0f) slope=1.0f;
+			    	//rt_printf("slope: %f\n",slope);
+
+			      	//gAmplitude=max_found/-0.4f;
+				    gAmplitude=slope;
+			    	zero_reported=true;
+			    }
+			}
+
+			timeout--;
+			if(timeout<0)
+			{
+				
+
+				
+				rt_printf("vol: %.02f center: %.02f\n",gAmplitude,zero_ratio);
+				state=STATE_WAITING;
+				zero_reported=false;
+			}
+		}
+		float out=0.0f;
+		if(note_time>0)
+		{
+			note_time--;
 		// generate a sine wave with the amplitude and frequency 
-		/*float out = gAmplitude * sinf(gPhase);
+		out = gAmplitude * sinf(gPhase);
 		gPhase += 2.0f * (float)M_PI * gFrequency * gInverseSampleRate;
 		if(gPhase > M_PI)
 			gPhase -= 2.0f * (float)M_PI;
-        */
-        float out=0.0f;		// log the sine wave and sensor values on the scope
+		}	
+			
+        
 		scope.log(out, gIn1, smoothed);
 
 		// pass the sine wave to the audio outputs
