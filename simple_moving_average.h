@@ -30,6 +30,16 @@ public:
 		return current_avg;
 	}
 	
+	void fill(float value)
+	{
+	    sma_running_total=sma_size*value;
+     	
+        for(int i=0;i<sma_size;i++)
+		{
+			buffer[i]=value;
+		}
+	}
+	
 	void reset()
 	{
 		sma_index=0; 
